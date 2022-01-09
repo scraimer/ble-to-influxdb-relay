@@ -14,7 +14,7 @@ import (
 func onStateChanged(device gatt.Device, s gatt.State) {
 	switch s {
 	case gatt.StatePoweredOn:
-		fmt.Println("Scanning for iBeacon Broadcasts...")
+		fmt.Println("Scanning for ATC temperature advertisements...")
 		device.Scan([]gatt.UUID{}, true)
 		return
 	default:
@@ -86,16 +86,6 @@ func onPeripheralDiscovered(p gatt.Peripheral, a *gatt.Advertisement, rssi int) 
 	} else {
 		fmt.Printf("Invalid 0x181A packet from MAC %s\n", mac)
 	}
-
-	/*
-	b, err := NewiBeacon(a.ManufacturerData)
-	if err == nil {
-		fmt.Println("UUID: ", b.uuid)
-		fmt.Println("Major: ", b.major)
-		fmt.Println("Minor: ", b.minor)
-		fmt.Println("RSSI: ", rssi)
-	}
-	*/
 }
 
 func main() {

@@ -1,0 +1,24 @@
+diff --git a/adv.go b/adv.go
+index 787ff33..28db7e9 100644
+--- a/adv.go
++++ b/adv.go
+@@ -2,7 +2,7 @@ package gatt
+ 
+ import (
+ 	"errors"
+-	"log"
++//	"log"
+ )
+ 
+ // MaxEIRPacketLength is the maximum allowed AdvertisingPacket
+@@ -131,7 +131,9 @@ func (a *Advertisement) unmarshall(b []byte) error {
+ 		// case typeServiceData32,
+ 		// case typeServiceData128:
+ 		default:
+-			log.Printf("DATA: [ % X ]", d)
++			//log.Printf("DATA2: [ % X ]", d)
++			a.ManufacturerData = make([]byte, len(d))
++			copy(a.ManufacturerData, d)
+ 		}
+ 		b = b[1+l:]
+ 	}
