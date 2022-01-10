@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"log"
 	"encoding/binary"
+   "time"
 
 "github.com/paypal/gatt"
 "github.com/paypal/gatt/examples/option"
+"github.com/influxdata/influxdb-client-go/v2"
+"github.com/influxdata/influxdb-client-go/v2/api"
 )
 
 func onStateChanged(device gatt.Device, s gatt.State) {
@@ -53,6 +56,83 @@ func readInt16(src []byte) (int16, error) {
 	return v, nil
 }
 
+type measurement struct {
+	mac string
+	temperature float32
+	humidity float32
+	battery_percent float32
+	battery_mv float32
+	frame_packet_counter float32
+}
+
+func parseMeasurement(mac string, data []byte) *measurement {
+	if data == nil || len(data) != 15 {
+		return nil
+	}
+	temperature_int16, err := readInt16(data[8:10])
+	if err != nil {
+		fmt.Printf("Error parsing temperature: %v\n", err)
+		return nil
+	}
+	temperature := float32(temperature_int16) / 10.0
+	humidity := data[10]
+	battery_percent := data[11]
+	battery_mv := binary.LittleEndian.Uint16(data[12:])
+	frame_packet_counter := data[14]
+
+	m := measurement{
+		mac: mac,
+		temperature: float32(temperature),
+		humidity: float32(humidity),
+		battery_percent: float32(battery_percent),
+		battery_mv: float32(battery_mv),
+		frame_packet_counter: float32(frame_packet_counter),
+	}
+	return &m
+}
+
+var client influxdb2.Client
+var writeAPI api.WriteAPI
+
+func initInflux() {
+   //userName := "my-user"
+   //password := "my-password"
+   //auth_token := fmt.Sprintf("%s:%s",userName, password)
+   auth_token := ""
+   org_name := ""
+   dest_db := "temperature_sensors_v1"
+   dest_retention_policy := ""
+   db_string := fmt.Sprintf("%s/%s", dest_db, dest_retention_policy)
+
+   // Create a new client using an InfluxDB server base URL and an authentication token
+   // and set batch size to 10 
+   client = influxdb2.NewClientWithOptions("http://hinge-iot:8086", auth_token,
+	   influxdb2.DefaultOptions().SetBatchSize(10))
+   // Get non-blocking write client
+   writeAPI = client.WriteAPI(org_name, db_string)
+}
+
+func closeInflux() {
+    // Force all unwritten data to be sent
+    writeAPI.Flush()
+    // Ensures background processes finishes
+    client.Close()
+}
+
+func writeMeasurement(m *measurement) {
+   // create point
+	p := influxdb2.NewPointWithMeasurement("air").
+		AddField("mac", m.mac).
+   	AddField("temperature", m.temperature).
+   	AddField("humidity", m.humidity).
+   	AddField("battery_percent", m.battery_percent).
+   	AddField("battery_mv", m.battery_mv).
+   	AddField("frame_packet_counter", m.frame_packet_counter).
+		SetTime(time.Now())
+   // write asynchronously
+   writeAPI.WritePoint(p)
+}
+
 func onPeripheralDiscovered(p gatt.Peripheral, a *gatt.Advertisement, rssi int) {
 	debug := true
 	if a == nil || !isTemperatureData(a.ManufacturerData) {
@@ -68,27 +148,19 @@ func onPeripheralDiscovered(p gatt.Peripheral, a *gatt.Advertisement, rssi int) 
 			printHex(a.ManufacturerData[8:]),
 			len(a.ManufacturerData))
 	}
-	if len(a.ManufacturerData) == 15 {
-		temperature_int16, err := readInt16(a.ManufacturerData[8:10])
-		if err != nil {
-			fmt.Printf("Error parsing temperature: %v\n", err)
-			return
-		}
-		fmt.Printf("temperature_raw = %s %x\n", printHex(a.ManufacturerData[8:10]), temperature_int16)
-		temperature := float64(temperature_int16) / 10.0
-		humidity := a.ManufacturerData[10]
-		battery_percent := a.ManufacturerData[11]
-		battery_mv := binary.LittleEndian.Uint16(a.ManufacturerData[12:])
-		frame_packet_counter := a.ManufacturerData[14]
-		fmt.Printf("MAC=%s temperature=%g humidity=%d%%", mac, temperature, humidity)
-		fmt.Printf(" battery_percent=%d%% battery_mv=%d", battery_percent, battery_mv)
-		fmt.Printf(" frame_packet_counter=%d\n", frame_packet_counter)
+	m := parseMeasurement(mac, a.ManufacturerData)
+	if m != nil {
+		fmt.Printf("MAC=%s temperature=%g humidity=%d%%", m.mac, m.temperature, m.humidity)
+		fmt.Printf(" battery_percent=%d%% battery_mv=%d", m.battery_percent, m.battery_mv)
+		fmt.Printf(" frame_packet_counter=%d\n", m.frame_packet_counter)
+		writeMeasurement(m)
 	} else {
 		fmt.Printf("Invalid 0x181A packet from MAC %s\n", mac)
 	}
 }
 
 func main() {
+	initInflux()
 	device, err := gatt.NewDevice(option.DefaultClientOptions...)
 	if err != nil {
 		log.Fatalf("Failed to open device, err: %s\n", err)
