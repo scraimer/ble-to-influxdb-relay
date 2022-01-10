@@ -7,6 +7,7 @@ import (
 	"log"
 	"encoding/binary"
    "time"
+  	"strings"
 
 "github.com/paypal/gatt"
 "github.com/paypal/gatt/examples/option"
@@ -69,6 +70,9 @@ func parseMeasurement(mac string, data []byte) *measurement {
 	if data == nil || len(data) != 15 {
 		return nil
 	}
+
+	mac_lowercase := strings.ToLower(strings.ReplaceAll(mac, ":", ""))
+
 	temperature_int16, err := readInt16(data[8:10])
 	if err != nil {
 		fmt.Printf("Error parsing temperature: %v\n", err)
@@ -81,7 +85,7 @@ func parseMeasurement(mac string, data []byte) *measurement {
 	frame_packet_counter := data[14]
 
 	m := measurement{
-		mac: mac,
+		mac: mac_lowercase,
 		temperature: float32(temperature),
 		humidity: float32(humidity),
 		battery_percent: float32(battery_percent),
@@ -134,7 +138,7 @@ func writeMeasurement(m *measurement) {
 }
 
 func onPeripheralDiscovered(p gatt.Peripheral, a *gatt.Advertisement, rssi int) {
-	debug := true
+	debug := false
 	if a == nil || !isTemperatureData(a.ManufacturerData) {
 		return
 	}
@@ -150,12 +154,16 @@ func onPeripheralDiscovered(p gatt.Peripheral, a *gatt.Advertisement, rssi int) 
 	}
 	m := parseMeasurement(mac, a.ManufacturerData)
 	if m != nil {
-		fmt.Printf("MAC=%s temperature=%g humidity=%d%%", m.mac, m.temperature, m.humidity)
-		fmt.Printf(" battery_percent=%d%% battery_mv=%d", m.battery_percent, m.battery_mv)
-		fmt.Printf(" frame_packet_counter=%d\n", m.frame_packet_counter)
+		if debug {
+			fmt.Printf("MAC=%s temperature=%g humidity=%d%%", m.mac, m.temperature, m.humidity)
+			fmt.Printf(" battery_percent=%d%% battery_mv=%d", m.battery_percent, m.battery_mv)
+			fmt.Printf(" frame_packet_counter=%d\n", m.frame_packet_counter)
+		}
 		writeMeasurement(m)
 	} else {
-		fmt.Printf("Invalid 0x181A packet from MAC %s\n", mac)
+		if debug {
+			fmt.Printf("Invalid 0x181A packet from MAC %s\n", mac)
+		}
 	}
 }
 
