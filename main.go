@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"encoding/binary"
+	"math"
    "time"
   	"strings"
 
@@ -59,11 +60,11 @@ func readInt16(src []byte) (int16, error) {
 
 type measurement struct {
 	mac string
-	temperature float32
-	humidity float32
-	battery_percent float32
-	battery_mv float32
-	frame_packet_counter float32
+	temperature float64
+	humidity float64
+	battery_percent float64
+	battery_mv float64
+	frame_packet_counter float64
 }
 
 func parseMeasurement(mac string, data []byte) *measurement {
@@ -78,7 +79,7 @@ func parseMeasurement(mac string, data []byte) *measurement {
 		fmt.Printf("Error parsing temperature: %v\n", err)
 		return nil
 	}
-	temperature := float32(temperature_int16) / 10.0
+	temperature := float64(temperature_int16) / 10.0
 	humidity := data[10]
 	battery_percent := data[11]
 	battery_mv := binary.LittleEndian.Uint16(data[12:])
@@ -86,11 +87,11 @@ func parseMeasurement(mac string, data []byte) *measurement {
 
 	m := measurement{
 		mac: mac_lowercase,
-		temperature: float32(temperature),
-		humidity: float32(humidity),
-		battery_percent: float32(battery_percent),
-		battery_mv: float32(battery_mv),
-		frame_packet_counter: float32(frame_packet_counter),
+		temperature: float64(temperature),
+		humidity: float64(humidity),
+		battery_percent: float64(battery_percent),
+		battery_mv: float64(battery_mv),
+		frame_packet_counter: float64(frame_packet_counter),
 	}
 	return &m
 }
@@ -126,8 +127,9 @@ func closeInflux() {
 func writeMeasurement(m *measurement) {
    // create point
 	p := influxdb2.NewPointWithMeasurement("air").
-		AddField("mac", m.mac).
-   	AddField("temperature", m.temperature).
+		AddTag("mac", m.mac).
+		AddTag("relay", "middle-floor"). // TODO: move this to a config file
+   	AddField("temperature", math.Round(m.temperature*100)/100).
    	AddField("humidity", m.humidity).
    	AddField("battery_percent", m.battery_percent).
    	AddField("battery_mv", m.battery_mv).
