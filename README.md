@@ -24,3 +24,7 @@ After cloning this repo, run the following commands:
 
     sudo /home/pi/go/bin/rpi0-ble-relay
 
+## Install to run on boot
+
+    sudo python3 -s install-service.py
+
