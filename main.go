@@ -7,14 +7,43 @@ import (
 	"log"
 	"encoding/binary"
 	"math"
-   "time"
-  	"strings"
-
-"github.com/paypal/gatt"
-"github.com/paypal/gatt/examples/option"
-"github.com/influxdata/influxdb-client-go/v2"
-"github.com/influxdata/influxdb-client-go/v2/api"
+	"time"
+	"strings"
+	"encoding/json"
+	"io/ioutil"
+	"os"
+	"github.com/paypal/gatt"
+	"github.com/paypal/gatt/examples/option"
+	"github.com/influxdata/influxdb-client-go/v2"
+	"github.com/influxdata/influxdb-client-go/v2/api"
 )
+
+type Config struct {
+	Name string	`json:"name"`
+}
+
+var config Config
+
+func readConfig(configFilename string) (Config, error) {
+	file, err_open := os.Open(configFilename)
+	if err_open != nil {
+		log.Fatal(err_open)
+		return Config{}, err_open
+	}
+	defer file.Close()
+	byteValue, err_read := ioutil.ReadAll(file)
+	if err_read != nil {
+		log.Fatal(err_read)
+		return Config{}, err_read
+	}
+	var outConfig Config
+	err_json := json.Unmarshal(byteValue, &outConfig)
+	if err_json != nil {
+		log.Fatal(err_json)
+		return Config{}, err_json
+	}
+	return outConfig, nil
+}
 
 func onStateChanged(device gatt.Device, s gatt.State) {
 	switch s {
@@ -128,7 +157,7 @@ func writeMeasurement(m *measurement) {
    // create point
 	p := influxdb2.NewPointWithMeasurement("air").
 		AddTag("mac", m.mac).
-		AddTag("relay", "middle-floor"). // TODO: move this to a config file
+		AddTag("relay", config.Name).
    	AddField("temperature", math.Round(m.temperature*100)/100).
    	AddField("humidity", m.humidity).
    	AddField("battery_percent", m.battery_percent).
@@ -170,6 +199,11 @@ func onPeripheralDiscovered(p gatt.Peripheral, a *gatt.Advertisement, rssi int) 
 }
 
 func main() {
+	var config_err error
+	config, config_err = readConfig("/etc/ble-relay.conf")
+	if config_err != nil {
+		log.Fatalf("Error reading config: %s\n", config_err)
+	}
 	initInflux()
 	device, err := gatt.NewDevice(option.DefaultClientOptions...)
 	if err != nil {
