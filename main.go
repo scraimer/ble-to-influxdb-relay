@@ -2,24 +2,25 @@ package main
 
 import (
 	"bytes"
+	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
-	"encoding/binary"
-	"math"
-	"time"
-	"strings"
-	"encoding/json"
 	"io/ioutil"
+	"log"
+	"math"
 	"os"
+	"strings"
+	"time"
+
+	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
+	"github.com/influxdata/influxdb-client-go/v2/api"
 	"github.com/paypal/gatt"
 	"github.com/paypal/gatt/examples/option"
-	"github.com/influxdata/influxdb-client-go/v2"
-	"github.com/influxdata/influxdb-client-go/v2/api"
 )
 
 type Config struct {
-	Name string	`json:"name"`
+	Name string `json:"name"`
 }
 
 var config Config
@@ -88,11 +89,11 @@ func readInt16(src []byte) (int16, error) {
 }
 
 type measurement struct {
-	mac string
-	temperature float64
-	humidity float64
-	battery_percent float64
-	battery_mv float64
+	mac                  string
+	temperature          float64
+	humidity             float64
+	battery_percent      float64
+	battery_mv           float64
 	frame_packet_counter float64
 }
 
@@ -115,11 +116,11 @@ func parseMeasurement(mac string, data []byte) *measurement {
 	frame_packet_counter := data[14]
 
 	m := measurement{
-		mac: mac_lowercase,
-		temperature: float64(temperature),
-		humidity: float64(humidity),
-		battery_percent: float64(battery_percent),
-		battery_mv: float64(battery_mv),
+		mac:                  mac_lowercase,
+		temperature:          float64(temperature),
+		humidity:             float64(humidity),
+		battery_percent:      float64(battery_percent),
+		battery_mv:           float64(battery_mv),
 		frame_packet_counter: float64(frame_packet_counter),
 	}
 	return &m
@@ -129,43 +130,43 @@ var client influxdb2.Client
 var writeAPI api.WriteAPI
 
 func initInflux() {
-   //userName := "my-user"
-   //password := "my-password"
-   //auth_token := fmt.Sprintf("%s:%s",userName, password)
-   auth_token := ""
-   org_name := ""
-   dest_db := "temperature_sensors_v1"
-   dest_retention_policy := ""
-   db_string := fmt.Sprintf("%s/%s", dest_db, dest_retention_policy)
+	//userName := "my-user"
+	//password := "my-password"
+	//auth_token := fmt.Sprintf("%s:%s",userName, password)
+	auth_token := ""
+	org_name := ""
+	dest_db := "temperature_sensors_v1"
+	dest_retention_policy := ""
+	db_string := fmt.Sprintf("%s/%s", dest_db, dest_retention_policy)
 
-   // Create a new client using an InfluxDB server base URL and an authentication token
-   // and set batch size to 10 
-   client = influxdb2.NewClientWithOptions("http://hinge-iot:8086", auth_token,
-	   influxdb2.DefaultOptions().SetBatchSize(10))
-   // Get non-blocking write client
-   writeAPI = client.WriteAPI(org_name, db_string)
+	// Create a new client using an InfluxDB server base URL and an authentication token
+	// and set batch size to 10
+	client = influxdb2.NewClientWithOptions("http://hinge-iot:8086", auth_token,
+		influxdb2.DefaultOptions().SetBatchSize(10))
+	// Get non-blocking write client
+	writeAPI = client.WriteAPI(org_name, db_string)
 }
 
 func closeInflux() {
-    // Force all unwritten data to be sent
-    writeAPI.Flush()
-    // Ensures background processes finishes
-    client.Close()
+	// Force all unwritten data to be sent
+	writeAPI.Flush()
+	// Ensures background processes finishes
+	client.Close()
 }
 
 func writeMeasurement(m *measurement) {
-   // create point
+	// create point
 	p := influxdb2.NewPointWithMeasurement("air").
 		AddTag("mac", m.mac).
 		AddTag("relay", config.Name).
-   	AddField("temperature", math.Round(m.temperature*100)/100).
-   	AddField("humidity", m.humidity).
-   	AddField("battery_percent", m.battery_percent).
-   	AddField("battery_mv", m.battery_mv).
-   	AddField("frame_packet_counter", m.frame_packet_counter).
+		AddField("temperature", math.Round(m.temperature*100)/100).
+		AddField("humidity", m.humidity).
+		AddField("battery_percent", m.battery_percent).
+		AddField("battery_mv", m.battery_mv).
+		AddField("frame_packet_counter", m.frame_packet_counter).
 		SetTime(time.Now())
-   // write asynchronously
-   writeAPI.WritePoint(p)
+	// write asynchronously
+	writeAPI.WritePoint(p)
 }
 
 func onPeripheralDiscovered(p gatt.Peripheral, a *gatt.Advertisement, rssi int) {
