@@ -5,15 +5,17 @@
 After cloning this repo, run the following commands:
 
     cd $CLONEDIR
+    go mod edit -replace=github.com/paypal/gatt=./local/gatt
     mkdir local/
     cd local
     git clone https://github.com/paypal/gatt.git
     cd gatt
     git checkout 4ae819d591cfc94c496c45deb55928469542beec
     git apply ../../gatt-changes.patch
-
-    go mod edit -replace=github.com/paypal/gatt=./local/gatt
     go mod init local/gatt
+    go mod tidy
+    
+When doing `go install` below, there might be some dependencies that need `go get`
 
 ## Build
 
