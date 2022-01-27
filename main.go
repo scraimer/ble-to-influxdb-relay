@@ -76,7 +76,7 @@ func isTemperatureData(a []byte) bool {
 
 func readInt16(src []byte) (int16, error) {
 	if src == nil || len(src) < 2 {
-		return 0, errors.New("Source of int16 must be []byte of length 2 or more")
+		return 0, errors.New("source of int16 must be []byte of length 2 or more")
 	}
 	var v int16
 	buf := bytes.NewReader(src)
@@ -187,9 +187,9 @@ func onPeripheralDiscovered(p gatt.Peripheral, a *gatt.Advertisement, rssi int) 
 	m := parseMeasurement(mac, a.ManufacturerData)
 	if m != nil {
 		if debug {
-			fmt.Printf("MAC=%s temperature=%g humidity=%d%%", m.mac, m.temperature, m.humidity)
-			fmt.Printf(" battery_percent=%d%% battery_mv=%d", m.battery_percent, m.battery_mv)
-			fmt.Printf(" frame_packet_counter=%d\n", m.frame_packet_counter)
+			fmt.Printf("MAC=%s temperature=%g humidity=%g%%", m.mac, m.temperature, m.humidity)
+			fmt.Printf(" battery_percent=%g%% battery_mv=%g", m.battery_percent, m.battery_mv)
+			fmt.Printf(" frame_packet_counter=%g\n", m.frame_packet_counter)
 		}
 		writeMeasurement(m)
 	} else {
@@ -206,6 +206,7 @@ func main() {
 		log.Fatalf("Error reading config: %s\n", config_err)
 	}
 	initInflux()
+	defer closeInflux()
 	device, err := gatt.NewDevice(option.DefaultClientOptions...)
 	if err != nil {
 		log.Fatalf("Failed to open device, err: %s\n", err)
