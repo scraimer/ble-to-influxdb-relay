@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,7 @@ import (
 
 	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
 	"github.com/influxdata/influxdb-client-go/v2/api"
+	_ "github.com/lib/pq"
 	"github.com/paypal/gatt"
 	"github.com/paypal/gatt/examples/option"
 )
@@ -23,7 +25,13 @@ type Config struct {
 	Name string `json:"name"`
 }
 
+type Sensor struct {
+	mac  string
+	name string
+}
+
 var config Config
+var relays map[string]Sensor
 
 func readConfig(configFilename string) (Config, error) {
 	file, err_open := os.Open(configFilename)
@@ -95,9 +103,11 @@ type measurement struct {
 	battery_percent      float64
 	battery_mv           float64
 	frame_packet_counter float64
+	rssi                 int
+	sensor_name          string
 }
 
-func parseMeasurement(mac string, data []byte) *measurement {
+func parseMeasurement(mac string, data []byte, rssi int) *measurement {
 	if data == nil || len(data) != 15 {
 		return nil
 	}
@@ -114,6 +124,11 @@ func parseMeasurement(mac string, data []byte) *measurement {
 	battery_percent := data[11]
 	battery_mv := binary.LittleEndian.Uint16(data[12:])
 	frame_packet_counter := data[14]
+	sensor, mac_exists := relays[mac_lowercase]
+	if !mac_exists {
+		sensor = Sensor{}
+		sensor.name = mac_lowercase
+	}
 
 	m := measurement{
 		mac:                  mac_lowercase,
@@ -122,6 +137,8 @@ func parseMeasurement(mac string, data []byte) *measurement {
 		battery_percent:      float64(battery_percent),
 		battery_mv:           float64(battery_mv),
 		frame_packet_counter: float64(frame_packet_counter),
+		rssi:                 rssi,
+		sensor_name:          sensor.name,
 	}
 	return &m
 }
@@ -159,11 +176,13 @@ func writeMeasurement(m *measurement) {
 	p := influxdb2.NewPointWithMeasurement("air").
 		AddTag("mac", m.mac).
 		AddTag("relay", config.Name).
+		AddTag("sensor_name", m.sensor_name).
 		AddField("temperature", math.Round(m.temperature*100)/100).
 		AddField("humidity", m.humidity).
 		AddField("battery_percent", m.battery_percent).
 		AddField("battery_mv", m.battery_mv).
 		AddField("frame_packet_counter", m.frame_packet_counter).
+		AddField("rssi", m.rssi).
 		SetTime(time.Now())
 	// write asynchronously
 	writeAPI.WritePoint(p)
@@ -184,7 +203,7 @@ func onPeripheralDiscovered(p gatt.Peripheral, a *gatt.Advertisement, rssi int) 
 			printHex(a.ManufacturerData[8:]),
 			len(a.ManufacturerData))
 	}
-	m := parseMeasurement(mac, a.ManufacturerData)
+	m := parseMeasurement(mac, a.ManufacturerData, rssi)
 	if m != nil {
 		if debug {
 			fmt.Printf("MAC=%s temperature=%g humidity=%g%%", m.mac, m.temperature, m.humidity)
@@ -199,11 +218,64 @@ func onPeripheralDiscovered(p gatt.Peripheral, a *gatt.Advertisement, rssi int) 
 	}
 }
 
+func loadPostgresData() (map[string]Sensor, error) {
+	const (
+		host     = "hinge-iot"
+		port     = 5432
+		user     = "blerelay"
+		password = "blerelay"
+		dbname   = "temperature_sensors_v1"
+	)
+
+	psqlInfo := fmt.Sprintf("host=%s port=%d user=%s "+
+		"password=%s dbname=%s sslmode=disable",
+		host, port, user, password, dbname)
+
+	db, err := sql.Open("postgres", psqlInfo)
+	if err != nil {
+		panic(err)
+	}
+	defer db.Close()
+
+	err = db.Ping()
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("Successfully connected!")
+
+	rows, err2 := db.Query("SELECT mac,name FROM mac_names")
+	if err2 != nil {
+		panic(err2)
+	}
+	defer rows.Close()
+
+	var relays map[string]Sensor = make(map[string]Sensor)
+	for rows.Next() {
+		var r Sensor
+		if err := rows.Scan(&r.mac, &r.name); err != nil {
+			return relays, err
+		}
+		relays[r.mac] = r
+	}
+	if err = rows.Err(); err != nil {
+		return relays, err
+	}
+	return relays, nil
+}
+
 func main() {
 	var config_err error
 	config, config_err = readConfig("/etc/ble-relay.conf")
 	if config_err != nil {
 		log.Fatalf("Error reading config: %s\n", config_err)
+		return
+	}
+	var postgres_err error
+	relays, postgres_err = loadPostgresData()
+	if postgres_err != nil {
+		log.Fatalf("Error loading postgresql data: %s\n", postgres_err)
+		return
 	}
 	initInflux()
 	defer closeInflux()
